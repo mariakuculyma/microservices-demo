@@ -10,6 +10,7 @@ RUN apt-get -qq update \
 # get packages
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+RUN pip install -i https://test.pypi.org/simple/ oneagent-sdk
 
 FROM base as final
 # Enable unbuffered logging

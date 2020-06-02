@@ -14,6 +14,7 @@ RUN GRPC_HEALTH_PROBE_VERSION=v0.2.0 && \
 WORKDIR /recommendationservice
 COPY requirements.txt requirements.txt
 RUN pip install -r requirements.txt
+RUN pip install -i https://test.pypi.org/simple/ oneagent-sdk
 
 # add files into working directory
 COPY . .

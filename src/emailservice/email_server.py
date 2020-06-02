@@ -35,6 +35,8 @@ from opencensus.trace.ext.grpc import server_interceptor
 from opencensus.common.transports.async_ import AsyncTransport
 from opencensus.trace.samplers import always_on
 
+import oneagent
+import oneagent.sdk as onesdk
 # import googleclouddebugger
 import googlecloudprofiler
 
@@ -110,8 +112,19 @@ class EmailService(BaseEmailService):
 
 class DummyEmailService(BaseEmailService):
   def SendOrderConfirmation(self, request, context):
-    logger.info('A request to send order confirmation email to {} has been received.'.format(request.email))
-    return demo_pb2.Empty()
+
+    tag=''
+    for key, value in context.invocation_metadata():
+       if key == "x-dynatrace":
+          tag = value
+    incall = oneagent.get_sdk().trace_incoming_remote_call(
+      'SendOrderConfirmation', 'EmailService', 'grpc://hipstershop.EmailService',
+       protocol_name='gRPC',
+       str_tag=tag)
+
+    with incall:
+        logger.info('A request to send order confirmation email to {} has been received.'.format(request.email))
+        return demo_pb2.Empty()
 
 class HealthCheck():
   def Check(self, request, context):
@@ -130,6 +143,10 @@ def start(dummy_mode):
   demo_pb2_grpc.add_EmailServiceServicer_to_server(service, server)
   health_pb2_grpc.add_HealthServicer_to_server(service, server)
 
+  #init oneagent
+  if not oneagent.initialize(['loglevelsdk=finest', 'loglevel=finest']):
+     print('Error initializing OneAgent SDK.')
+
   port = os.environ.get('PORT', "8080")
   logger.info("listening on port: "+port)
   server.add_insecure_port('[::]:'+port)
@@ -139,6 +156,7 @@ def start(dummy_mode):
       time.sleep(3600)
   except KeyboardInterrupt:
     server.stop(0)
+    oneagent.shutdown()
 
 def initStackdriverProfiling():
   project_id = None

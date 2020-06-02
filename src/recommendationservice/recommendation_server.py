@@ -24,6 +24,10 @@ import googleclouddebugger
 import googlecloudprofiler
 from google.auth.exceptions import DefaultCredentialsError
 import grpc
+
+import oneagent
+import oneagent.sdk as onesdk
+
 from opencensus.trace.exporters import print_exporter
 from opencensus.trace.exporters import stackdriver_exporter
 from opencensus.trace.ext.grpc import server_interceptor
@@ -65,26 +69,47 @@ def initStackdriverProfiling():
 
 class RecommendationService(demo_pb2_grpc.RecommendationServiceServicer):
     def ListRecommendations(self, request, context):
-        max_responses = 5
-        # fetch list of products from product catalog stub
-        cat_response = product_catalog_stub.ListProducts(demo_pb2.Empty())
-        product_ids = [x.id for x in cat_response.products]
-        filtered_products = list(set(product_ids)-set(request.product_ids))
-        num_products = len(filtered_products)
-        num_return = min(max_responses, num_products)
-        # sample list of indicies to return
-        indices = random.sample(range(num_products), num_return)
-        # fetch product ids from indices
-        prod_list = [filtered_products[i] for i in indices]
-        logger.info("[Recv ListRecommendations] product_ids={}".format(prod_list))
-        # build and return response
-        response = demo_pb2.ListRecommendationsResponse()
-        response.product_ids.extend(prod_list)
+        tag=''
+        for key, value in context.invocation_metadata():
+            if key == "x-dynatrace":
+                tag = value
+        incall = oneagent.get_sdk().trace_incoming_remote_call(
+            'ListRecommendations', 'RecommendationService', 'grpc://hipstershop.RecommendationService',
+            protocol_name='gRPC',
+            str_tag=tag)
+
+        with incall:
+            max_responses = 5
+            # fetch list of products from product catalog stub
+            cat_response = product_catalog_stub.ListProducts(demo_pb2.Empty())
+            product_ids = [x.id for x in cat_response.products]
+            filtered_products = list(set(product_ids)-set(request.product_ids))
+            num_products = len(filtered_products)
+            num_return = min(max_responses, num_products)
+            # sample list of indicies to return
+            indices = random.sample(range(num_products), num_return)
+            # fetch product ids from indices
+            prod_list = [filtered_products[i] for i in indices]
+            logger.info("[Recv ListRecommendations] product_ids={}".format(prod_list))
+            # build and return response
+            response = demo_pb2.ListRecommendationsResponse()
+            response.product_ids.extend(prod_list)
         return response
 
     def Check(self, request, context):
-        return health_pb2.HealthCheckResponse(
-            status=health_pb2.HealthCheckResponse.SERVING)
+        tag=''
+        for key, value in context.invocation_metadata():
+            if key == "x-dynatrace":
+                tag = value
+
+        incall = oneagent.get_sdk().trace_incoming_remote_call(
+            'Check', 'RecommendationService', 'grpc://hipstershop.RecommendationService',
+            protocol_name='gRPC',
+            str_tag=tag)
+
+        with incall:
+            return health_pb2.HealthCheckResponse(
+                status=health_pb2.HealthCheckResponse.SERVING)
 
 
 if __name__ == "__main__":
@@ -148,6 +173,10 @@ if __name__ == "__main__":
     demo_pb2_grpc.add_RecommendationServiceServicer_to_server(service, server)
     health_pb2_grpc.add_HealthServicer_to_server(service, server)
 
+    #init oneagent
+    if not oneagent.initialize(['loglevelsdk=finest', 'loglevel=finest']):
+        print('Error initializing OneAgent SDK.')
+
     # start server
     logger.info("listening on port: " + port)
     server.add_insecure_port('[::]:'+port)
@@ -159,3 +188,4 @@ if __name__ == "__main__":
             time.sleep(10000)
     except KeyboardInterrupt:
             server.stop(0)
+            oneagent.shutdown()
